@@ -22,7 +22,7 @@ use zellij_utils::input::layout::{
 };
 use zellij_utils::input::mouse::MouseEvent;
 use zellij_utils::input::options::{
-    HostNotificationProtocol, NestedSessionHandling, Options, PaneFrameStyle,
+    HostNotificationProtocol, NestedSessionHandling, Options, PaneFrameStyle, WindowSize,
     DEFAULT_WORD_SEPARATORS,
 };
 use zellij_utils::ipc::IpcReceiverWithContext;
@@ -11097,6 +11097,201 @@ fn recompute_tab_size_takes_independent_min_across_axes() {
         screen.tabs.get(&0).unwrap().size,
         Size { cols: 80, rows: 24 },
         "Tab size = (min cols across viewers, min rows across viewers)"
+    );
+}
+
+#[test]
+fn window_size_latest_sizes_to_active_client_not_min() {
+    let initial_size = Size {
+        cols: 200,
+        rows: 60,
+    };
+    let mut screen = create_new_screen(initial_size, true, true);
+    new_tab(&mut screen, 1, 0);
+    screen.add_client(2, false).expect("TEST");
+
+    // A large active client (1) and a small co-attached client (2), both on tab 0.
+    screen.set_client_size(
+        1,
+        Size {
+            cols: 200,
+            rows: 60,
+        },
+    );
+    screen.set_client_size(2, Size { cols: 80, rows: 24 });
+
+    screen.window_size = WindowSize::Latest;
+    screen.last_interacting_client = Some(1);
+    screen.recompute_tab_size(0).expect("TEST");
+
+    assert_eq!(
+        screen.tabs.get(&0).unwrap().size,
+        Size {
+            cols: 200,
+            rows: 60,
+        },
+        "window_size latest sizes the tab to the active client, not the smaller co-attached one"
+    );
+}
+
+#[test]
+fn window_size_latest_follows_active_client_on_switch() {
+    let initial_size = Size {
+        cols: 200,
+        rows: 60,
+    };
+    let mut screen = create_new_screen(initial_size, true, true);
+    new_tab(&mut screen, 1, 0);
+    screen.add_client(2, false).expect("TEST");
+    screen.set_client_size(
+        1,
+        Size {
+            cols: 200,
+            rows: 60,
+        },
+    );
+    screen.set_client_size(
+        2,
+        Size {
+            cols: 100,
+            rows: 30,
+        },
+    );
+    screen.window_size = WindowSize::Latest;
+
+    screen.last_interacting_client = Some(1);
+    screen.recompute_tab_size(0).expect("TEST");
+    assert_eq!(
+        screen.tabs.get(&0).unwrap().size,
+        Size {
+            cols: 200,
+            rows: 60,
+        },
+        "tab fits client 1 while it is the active client"
+    );
+
+    screen.last_interacting_client = Some(2);
+    screen.recompute_tab_size(0).expect("TEST");
+    assert_eq!(
+        screen.tabs.get(&0).unwrap().size,
+        Size {
+            cols: 100,
+            rows: 30,
+        },
+        "tab refits to client 2 once it becomes the active client (the switch case)"
+    );
+}
+
+#[test]
+fn window_size_latest_falls_back_to_min_without_active_client() {
+    let initial_size = Size {
+        cols: 200,
+        rows: 60,
+    };
+    let mut screen = create_new_screen(initial_size, true, true);
+    new_tab(&mut screen, 1, 0);
+    screen.add_client(2, false).expect("TEST");
+    screen.set_client_size(
+        1,
+        Size {
+            cols: 200,
+            rows: 24,
+        },
+    );
+    screen.set_client_size(2, Size { cols: 80, rows: 60 });
+
+    // `latest` set, but no active client (e.g. the active client just detached):
+    // sizing must fall back to the default smallest-client clamp.
+    screen.window_size = WindowSize::Latest;
+    screen.last_interacting_client = None;
+    screen.recompute_tab_size(0).expect("TEST");
+
+    assert_eq!(
+        screen.tabs.get(&0).unwrap().size,
+        Size { cols: 80, rows: 24 },
+        "with no active client, `latest` falls back to the per-axis min clamp"
+    );
+}
+
+#[test]
+fn window_size_latest_switches_to_client_that_interacts() {
+    let initial_size = Size {
+        cols: 200,
+        rows: 60,
+    };
+    let mut screen = create_new_screen(initial_size, true, true);
+    new_tab(&mut screen, 1, 0);
+    screen.add_client(2, false).expect("TEST");
+    screen.set_client_size(
+        1,
+        Size {
+            cols: 200,
+            rows: 60,
+        },
+    );
+    screen.set_client_size(
+        2,
+        Size {
+            cols: 100,
+            rows: 30,
+        },
+    );
+    screen.window_size = WindowSize::Latest;
+
+    screen.last_interacting_client = Some(1);
+    screen.recompute_tab_size(0).expect("TEST");
+    assert_eq!(
+        screen.tabs.get(&0).unwrap().size,
+        Size {
+            cols: 200,
+            rows: 60,
+        },
+        "tab fits client 1 while it is active"
+    );
+
+    // client 2 interacts (e.g. types) without resizing or re-attaching:
+    // it should become active and the tab should refit to it immediately.
+    screen.mark_client_active(2).expect("TEST");
+    assert_eq!(
+        screen.tabs.get(&0).unwrap().size,
+        Size {
+            cols: 100,
+            rows: 30,
+        },
+        "interacting with client 2 refits the tab to its viewport"
+    );
+}
+
+#[test]
+fn window_size_largest_sizes_to_per_axis_max() {
+    let initial_size = Size {
+        cols: 200,
+        rows: 60,
+    };
+    let mut screen = create_new_screen(initial_size, true, true);
+    new_tab(&mut screen, 1, 0);
+    screen.add_client(2, false).expect("TEST");
+    // Max cols and max rows come from different clients, so the result must be
+    // the per-axis maximum rather than any single client's viewport.
+    screen.set_client_size(
+        1,
+        Size {
+            cols: 200,
+            rows: 24,
+        },
+    );
+    screen.set_client_size(2, Size { cols: 80, rows: 60 });
+
+    screen.window_size = WindowSize::Largest;
+    screen.recompute_tab_size(0).expect("TEST");
+
+    assert_eq!(
+        screen.tabs.get(&0).unwrap().size,
+        Size {
+            cols: 200,
+            rows: 60,
+        },
+        "largest sizes the tab to the per-axis max across all viewers"
     );
 }
 

@@ -101,6 +101,50 @@ impl FromStr for OnQuit {
     }
 }
 
+/// How the session is sized when multiple clients are attached. Mirrors tmux's
+/// `window-size` option.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Deserialize, Serialize, ValueEnum)]
+pub enum WindowSize {
+    /// Clamp to the smallest attached client (the default).
+    #[serde(alias = "smallest")]
+    Smallest,
+    /// Size to the largest attached client; smaller clients see only part of it.
+    #[serde(alias = "largest")]
+    Largest,
+    /// Size to the most-recently-active client (tmux `latest`).
+    #[serde(alias = "latest")]
+    Latest,
+}
+
+impl Default for WindowSize {
+    fn default() -> Self {
+        Self::Smallest
+    }
+}
+
+impl std::fmt::Display for WindowSize {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            WindowSize::Smallest => "smallest",
+            WindowSize::Largest => "largest",
+            WindowSize::Latest => "latest",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+impl FromStr for WindowSize {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Smallest" | "smallest" => Ok(Self::Smallest),
+            "Largest" | "largest" => Ok(Self::Largest),
+            "Latest" | "latest" => Ok(Self::Latest),
+            _ => Err(format!("No such window_size: {}", s)),
+        }
+    }
+}
+
 impl Default for OnForceClose {
     fn default() -> Self {
         Self::Detach
@@ -449,6 +493,12 @@ pub struct Options {
     #[serde(default)]
     pub show_release_notes: Option<bool>,
 
+    /// How to size the session with multiple clients (tmux `window-size`). Also
+    /// settable per-attach with `--window-size`.
+    #[clap(long, value_enum, value_parser)]
+    #[serde(default)]
+    pub window_size: Option<WindowSize>,
+
     /// Whether to enable mouse hover effects and pane grouping functionality
     /// default is true
     #[clap(long, value_parser)]
@@ -735,6 +785,7 @@ impl Options {
         let stacked_pane_list = other.stacked_pane_list.or(self.stacked_pane_list);
         let show_startup_tips = other.show_startup_tips.or(self.show_startup_tips);
         let show_release_notes = other.show_release_notes.or(self.show_release_notes);
+        let window_size = other.window_size.or(self.window_size);
         let advanced_mouse_actions = other.advanced_mouse_actions.or(self.advanced_mouse_actions);
         let mouse_scroll_resize = other.mouse_scroll_resize.or(self.mouse_scroll_resize);
         let scroll_mode_sync = other.scroll_mode_sync.or(self.scroll_mode_sync);
@@ -831,6 +882,7 @@ impl Options {
             stacked_pane_list,
             show_startup_tips,
             show_release_notes,
+            window_size,
             advanced_mouse_actions,
             mouse_scroll_resize,
             scroll_mode_sync,
@@ -948,6 +1000,7 @@ impl Options {
         let stacked_pane_list = other.stacked_pane_list.or(self.stacked_pane_list);
         let show_startup_tips = other.show_startup_tips.or(self.show_startup_tips);
         let show_release_notes = other.show_release_notes.or(self.show_release_notes);
+        let window_size = other.window_size.or(self.window_size);
         let advanced_mouse_actions = other.advanced_mouse_actions.or(self.advanced_mouse_actions);
         let mouse_scroll_resize = other.mouse_scroll_resize.or(self.mouse_scroll_resize);
         let scroll_mode_sync = other.scroll_mode_sync.or(self.scroll_mode_sync);
@@ -1045,6 +1098,7 @@ impl Options {
             stacked_pane_list,
             show_startup_tips,
             show_release_notes,
+            window_size,
             advanced_mouse_actions,
             mouse_scroll_resize,
             scroll_mode_sync,

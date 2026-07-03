@@ -875,6 +875,7 @@ pub(crate) fn start_client(opts: CliArgs) {
                     client,
                     tab_position_to_focus,
                     pane_id_to_focus,
+                    args.window_size,
                     is_a_reconnect,
                     should_create_detached,
                     switch_context.clone(),
@@ -891,6 +892,7 @@ pub(crate) fn start_client(opts: CliArgs) {
                     ClientInfo::New(session_name, layout_info, new_session_cwd, None),
                     None,
                     None,
+                    None, // window_size (new session takes the creating client's size anyway)
                     is_a_reconnect,
                     should_create_detached,
                     switch_context.clone(),
@@ -928,6 +930,7 @@ pub(crate) fn start_client(opts: CliArgs) {
                                 client,
                                 None,
                                 None,
+                                None, // window_size (config-driven auto-attach uses the configured value)
                                 is_a_reconnect,
                                 should_create_detached,
                                 switch_context.clone(),
@@ -948,6 +951,7 @@ pub(crate) fn start_client(opts: CliArgs) {
                                 ),
                                 None,
                                 None,
+                                None, // window_size (new session takes the creating client's size anyway)
                                 is_a_reconnect,
                                 should_create_detached,
                                 switch_context.clone(),
@@ -972,6 +976,7 @@ pub(crate) fn start_client(opts: CliArgs) {
                     ClientInfo::New(session_name, layout_info, new_session_cwd, None),
                     None,
                     None,
+                    None, // window_size (new session takes the creating client's size anyway)
                     is_a_reconnect,
                     should_create_detached,
                     switch_context.clone(),
@@ -1046,6 +1051,7 @@ pub(crate) fn watch_session(session_name: Option<String>, opts: CliArgs) {
         client_info,
         None,  // tab_position_to_focus
         None,  // pane_id_to_focus
+        None,  // window_size
         false, // is_a_reconnect
         false, // should_create_detached
         None,

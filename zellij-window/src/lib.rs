@@ -447,6 +447,7 @@ fn connect(
         focus.0,
         focus.1,
         switch_context,
+        None,
     );
     let session_name = info.get_session_name().to_owned();
     let socket_path = if handshake.starts_server {

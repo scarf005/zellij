@@ -4,7 +4,7 @@ use crate::{
     consts::{ZELLIJ_CONFIG_DIR_ENV, ZELLIJ_CONFIG_FILE_ENV},
     input::{
         layout::PluginUserConfiguration,
-        options::{Options, PaneFrameStyle},
+        options::{Options, PaneFrameStyle, WindowSize},
     },
 };
 use clap::builder::styling::{AnsiColor, Color, Style, Styles};
@@ -543,6 +543,10 @@ pub struct AttachArgs {
     /// Skip TLS certificate validation (DANGEROUS — development only)
     #[clap(long, value_parser)]
     pub insecure: bool,
+
+    /// Override the configured window_size for this attach (smallest/largest/latest)
+    #[clap(long, value_enum, value_parser)]
+    pub window_size: Option<WindowSize>,
 
     /// Command to run in the first pane of the session, if it is created
     #[clap(value_parser, last(true))]

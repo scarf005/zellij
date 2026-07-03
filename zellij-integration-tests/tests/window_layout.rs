@@ -48,6 +48,7 @@ impl WindowClient {
             None,
             None,
             None,
+            None,
         );
         sender
             .send_client_msg(handshake.message)

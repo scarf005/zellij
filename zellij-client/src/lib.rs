@@ -194,7 +194,7 @@ use zellij_utils::{
     input::{
         cli_assets::{host_terminal_env, CliAssets},
         config::Config,
-        options::Options,
+        options::{Options, WindowSize},
     },
     ipc::{ClientToServerMsg, ExitReason, IpcReceiveError, ServerToClientMsg},
     nested_session,
@@ -1036,6 +1036,7 @@ pub fn first_message(
     tab_position_to_focus: Option<usize>,
     pane_id_to_focus: Option<(u32, bool)>,
     switch_context: Option<zellij_utils::session_history::SwitchContext>,
+    window_size: Option<WindowSize>,
 ) -> Handshake {
     let is_web_client = false;
     let layout_from_cli_args = |config_options: &Options| {
@@ -1098,6 +1099,7 @@ pub fn first_message(
                     zellij_utils::ipc::PaneReference { pane_id, is_plugin }
                 }),
                 is_web_client,
+                window_size,
             },
             starts_server: false,
         },
@@ -1121,6 +1123,7 @@ pub fn first_message(
                     None,
                 ),
                 is_web_client,
+                window_size,
             },
             starts_server: true,
         },
@@ -1136,6 +1139,7 @@ pub fn first_message(
                     initial_panes.clone(),
                 ),
                 is_web_client,
+                window_size,
             },
             starts_server: true,
         },
@@ -1154,6 +1158,7 @@ pub fn start_client(
     info: ClientInfo,
     tab_position_to_focus: Option<usize>,
     pane_id_to_focus: Option<(u32, bool)>, // (pane_id, is_plugin)
+    window_size: Option<WindowSize>,       // per-attach window_size override (None => use config)
     is_a_reconnect: bool,
     start_detached_and_exit: bool,
     switch_context: Option<zellij_utils::session_history::SwitchContext>,
@@ -1244,6 +1249,7 @@ pub fn start_client(
         tab_position_to_focus,
         pane_id_to_focus,
         switch_context,
+        window_size,
     );
 
     envs::set_session_name(own_session_name.clone());
@@ -1787,6 +1793,8 @@ pub fn start_server_detached(
     config.env.set_vars();
 
     let should_start_web_server = config_options.web_server.map(|w| w).unwrap_or(false);
+    // detached server start: no attaching client, so use the configured window_size
+    let window_size: Option<WindowSize> = None;
 
     let (first_msg, ipc_pipe) = match info {
         ClientInfo::Resurrect(name, path_to_layout, force_run_commands, cwd) => {
@@ -1831,6 +1839,7 @@ pub fn start_server_detached(
                 ClientToServerMsg::FirstClientConnected {
                     cli_assets,
                     is_web_client,
+                    window_size,
                 },
                 ipc_pipe,
             )
@@ -1890,6 +1899,7 @@ pub fn start_server_detached(
                 ClientToServerMsg::FirstClientConnected {
                     cli_assets,
                     is_web_client,
+                    window_size,
                 },
                 ipc_pipe,
             )
