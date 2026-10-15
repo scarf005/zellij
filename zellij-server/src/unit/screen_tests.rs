@@ -11296,6 +11296,48 @@ fn window_size_largest_sizes_to_per_axis_max() {
 }
 
 #[test]
+fn closing_tab_recomputes_size_of_tab_clients_move_to() {
+    let initial_size = Size {
+        cols: 200,
+        rows: 60,
+    };
+    let mut screen = create_non_mirrored_screen(initial_size);
+    new_tab(&mut screen, 1, 0);
+    new_tab(&mut screen, 2, 1);
+    new_tab(&mut screen, 3, 2);
+    screen.add_client(2, false).expect("TEST");
+    screen.set_client_size(
+        1,
+        Size {
+            cols: 160,
+            rows: 50,
+        },
+    );
+    screen.set_client_size(2, Size { cols: 80, rows: 24 });
+    screen.window_size = WindowSize::Latest;
+    screen.last_interacting_client = Some(1);
+
+    // client 2 views tab 1 alone, so tab 1 fits the small viewport
+    screen.switch_active_tab(1, None, true, 2).expect("TEST");
+    assert_eq!(
+        screen.tabs.get(&1).unwrap().size,
+        Size { cols: 80, rows: 24 },
+    );
+
+    // client 1 closes tab 2 and falls back to tab 1 from its history
+    screen.close_tab(1).expect("TEST");
+    assert_eq!(screen.active_tab_ids.get(&1), Some(&1));
+    assert_eq!(
+        screen.tabs.get(&1).unwrap().size,
+        Size {
+            cols: 160,
+            rows: 50,
+        },
+        "the tab receiving the active client refits to it"
+    );
+}
+
+#[test]
 fn recompute_tab_size_isolates_tabs_with_different_viewers() {
     let initial_size = Size {
         cols: 200,
