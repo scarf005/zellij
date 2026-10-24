@@ -1,7 +1,8 @@
 use super::kitty_graphics::{
-    format_kitty_error, format_kitty_reply, KittyAction, KittyCommand, KittyCommandParser,
-    KittyError, KittyErrorCode, KittyGrid, KittyHostSupport, KittyImageChunk, KittyImageStore,
-    KittyPlacement, KittyReplyData, KittyRowsBelowTheViewport, KittyVerticalAnchor,
+    format_kitty_error, format_kitty_reply, placeholder_cells, placeholder_runs, KittyAction,
+    KittyCommand, KittyCommandParser, KittyError, KittyErrorCode, KittyGrid, KittyHostSupport,
+    KittyImageChunk, KittyImageStore, KittyPlacement, KittyReplyData, KittyRowsBelowTheViewport,
+    KittyVerticalAnchor, PLACEHOLDER,
 };
 use super::sixel::{PixelRect, SixelGrid, SixelImageStore};
 use base64::alphabet::STANDARD as BASE64_STANDARD_ALPHABET;
@@ -2120,13 +2121,26 @@ impl Grid {
         Vec<SixelImageChunk>,
         Vec<KittyImageChunk>,
     ) {
-        let changed_character_chunks = self.output_buffer.changed_chunks_in_viewport(
+        let mut changed_character_chunks = self.output_buffer.changed_chunks_in_viewport(
             self.viewport.make_contiguous(),
             self.width,
             self.height,
             x_offset,
             y_offset,
         );
+        if self.kitty_grid.has_virtual_placements() {
+            // the placeholder cells are shown as the image pieces drawn over them
+            for chunk in changed_character_chunks.iter_mut() {
+                for character in chunk.terminal_characters.iter_mut() {
+                    if character.character == PLACEHOLDER {
+                        *character = TerminalCharacter::new_singlewidth_styled(
+                            ' ',
+                            character.styles.clone(),
+                        );
+                    }
+                }
+            }
+        }
         let changed_rects = self
             .output_buffer
             .changed_rects_in_viewport(self.viewport.len());
@@ -2143,13 +2157,30 @@ impl Grid {
         if self.kitty_settle_placements_below_the_viewport() {
             self.kitty_reanchor_all_from_pixels();
         }
-        let kitty_image_chunks = self.kitty_grid.viewport_kitty_chunks(
+        let mut kitty_image_chunks = self.kitty_grid.viewport_kitty_chunks(
             self.height,
             self.lines_above.len(),
             self.width,
             x_offset,
             y_offset,
         );
+        if self.kitty_grid.has_virtual_placements() {
+            let placeholder_lines: Vec<_> = self
+                .viewport
+                .iter()
+                .enumerate()
+                .filter_map(|(line_index, row)| {
+                    let runs = placeholder_runs(&placeholder_cells(row.columns.iter()));
+                    (!runs.is_empty()).then_some((line_index, runs))
+                })
+                .collect();
+            kitty_image_chunks.extend(self.kitty_grid.placeholder_chunks(
+                &placeholder_lines,
+                self.width,
+                x_offset,
+                y_offset,
+            ));
+        }
         self.output_buffer.clear();
 
         (
@@ -4421,6 +4452,28 @@ impl Grid {
                     Ok(resolved) => resolved,
                     Err(e) => return Err(e),
                 };
+                if command.unicode_placeholder {
+                    let Some(cell) = *self.character_cell_size.borrow() else {
+                        return Err(KittyError {
+                            code: KittyErrorCode::Enotsupported,
+                            message: "cell size unknown".to_owned(),
+                            image_id: command.image_id,
+                            image_number: command.image_number,
+                            placement_id: command.placement_id,
+                            quiet: command.quiet,
+                        });
+                    };
+                    self.kitty_grid
+                        .place_virtual(pane_image_id, internal, &command, cell)?;
+                    self.render_full_viewport();
+                    self.mark_for_rerender();
+                    return Ok(KittyReplyData {
+                        image_id: Some(pane_image_id),
+                        image_number: command.image_number,
+                        placement_id: command.placement_id,
+                        quiet: command.quiet,
+                    });
+                }
                 let cursor_px = self.current_cursor_pixel_coordinates();
                 let cell = { *self.character_cell_size.borrow() };
                 let (cursor_px, cell) = match (cursor_px, cell) {

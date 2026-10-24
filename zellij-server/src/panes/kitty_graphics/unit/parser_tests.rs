@@ -218,10 +218,20 @@ fn known_but_unsupported_keys_do_not_break_valid_command() {
 }
 
 #[test]
-fn unicode_placeholder_key_is_enotsupported() {
+fn unicode_placeholder_key_marks_the_command_virtual() {
     let mut parser = KittyCommandParser::new();
-    let err = parse_one(&mut parser, b"a=T,U=1,f=24,s=1,v=1;AAAA").unwrap_err();
-    assert_eq!(err.code, KittyErrorCode::Enotsupported);
+    let command = parse_one(&mut parser, b"a=T,U=1,i=7,c=4,r=2,f=24,s=1,v=1;AAAA").unwrap();
+    assert!(command.unicode_placeholder);
+    assert_eq!((command.columns, command.rows), (4, 2));
+    let command = parse_one(&mut parser, b"a=T,U=0,i=7,f=24,s=1,v=1;AAAA").unwrap();
+    assert!(!command.unicode_placeholder);
+}
+
+#[test]
+fn unicode_placeholder_key_rejects_other_values() {
+    let mut parser = KittyCommandParser::new();
+    let err = parse_one(&mut parser, b"a=T,U=2,f=24,s=1,v=1;AAAA").unwrap_err();
+    assert_eq!(err.code, KittyErrorCode::Einval);
 }
 
 #[test]

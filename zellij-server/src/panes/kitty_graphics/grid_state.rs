@@ -1,4 +1,5 @@
 use super::parser::{DecodedImage, KittyCommand, KittyError, KittyErrorCode};
+use super::placeholder::PlaceholderRun;
 use super::store::{InternalImageId, KittyImageStore, ScaledImageKey};
 use crate::panes::sixel::PixelRect;
 use std::cell::RefCell;
@@ -54,6 +55,18 @@ impl KittyPlacement {
     }
 }
 
+/// A placement made with `U=1`: it has no position of its own, the unicode placeholder cells
+/// printed in the grid show its pieces (see `placeholder`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct KittyVirtualPlacement {
+    pub image_id: u32,
+    pub placement_id: u32,
+    pub placement_uid: u64,
+    pub internal_id: InternalImageId,
+    pub dest_cells: (u16, u16),
+    pub z_index: i32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct KittyReplyData {
     pub image_id: Option<u32>,
@@ -80,6 +93,7 @@ pub struct KittyGrid {
     image_ids: HashMap<u32, InternalImageId>,
     image_numbers: HashMap<u32, Vec<u32>>,
     placements: Vec<KittyPlacement>,
+    virtual_placements: Vec<KittyVirtualPlacement>,
     next_synthetic_image_id: u32,
     front_drops: u64,
     merged_rows: u64,
@@ -129,6 +143,7 @@ impl KittyGrid {
             image_ids: HashMap::new(),
             image_numbers: HashMap::new(),
             placements: Vec::new(),
+            virtual_placements: Vec::new(),
             next_synthetic_image_id: u32::MAX,
             front_drops: 0,
             merged_rows: 0,
@@ -214,6 +229,15 @@ impl KittyGrid {
                     }
                 }
                 self.placements = kept;
+                let mut kept_virtual = Vec::with_capacity(self.virtual_placements.len());
+                for placement in self.virtual_placements.drain(..) {
+                    if placement.image_id == pane_image_id {
+                        store.free(placement.internal_id);
+                    } else {
+                        kept_virtual.push(placement);
+                    }
+                }
+                self.virtual_placements = kept_virtual;
                 if store.get(old_internal).is_some() {
                     store.free(old_internal);
                 }
@@ -421,6 +445,181 @@ impl KittyGrid {
             .add_placement_ref(internal);
         Ok(dest_cells)
     }
+    pub fn has_virtual_placements(&self) -> bool {
+        !self.virtual_placements.is_empty()
+    }
+    pub fn virtual_placements(&self) -> &[KittyVirtualPlacement] {
+        &self.virtual_placements
+    }
+    /// Records a `U=1` placement of the image: the size in cells its placeholders cover, taken from
+    /// `c`/`r` or else from the image size, keeping the image's aspect ratio for a lone `c` or `r`.
+    pub fn place_virtual(
+        &mut self,
+        pane_image_id: u32,
+        internal: InternalImageId,
+        command: &KittyCommand,
+        cell: SizeInPixels,
+    ) -> Result<(), KittyError> {
+        let (image_width, image_height) = {
+            let store = self.kitty_image_store.borrow();
+            let image = store
+                .get(internal)
+                .ok_or_else(|| enoent(command, "unknown image id"))?;
+            (image.width as usize, image.height as usize)
+        };
+        let ceil_div = |a: usize, b: usize| (a + b - 1) / b;
+        let (cols, rows) = match (command.columns as usize, command.rows as usize) {
+            (0, 0) => (
+                ceil_div(image_width, cell.width),
+                ceil_div(image_height, cell.height),
+            ),
+            (c, 0) => (
+                c,
+                ceil_div(c * cell.width * image_height, image_width * cell.height),
+            ),
+            (0, r) => (
+                ceil_div(r * cell.height * image_width, image_height * cell.width),
+                r,
+            ),
+            (c, r) => (c, r),
+        };
+        let (cols, rows) = (
+            cols.clamp(1, u16::MAX as usize),
+            rows.clamp(1, u16::MAX as usize),
+        );
+        let placement_id = if pane_image_id != 0 {
+            command.placement_id.unwrap_or(0)
+        } else {
+            0
+        };
+        let mut reused_uid: Option<u64> = None;
+        if pane_image_id != 0 && placement_id != 0 {
+            let mut store = self.kitty_image_store.borrow_mut();
+            self.virtual_placements.retain(|placement| {
+                if placement.image_id == pane_image_id && placement.placement_id == placement_id {
+                    store.remove_placement_ref(placement.internal_id);
+                    reused_uid = Some(placement.placement_uid);
+                    false
+                } else {
+                    true
+                }
+            });
+        }
+        let placement_uid = match reused_uid {
+            Some(uid) => uid,
+            None => self.kitty_image_store.borrow_mut().next_placement_uid(),
+        };
+        self.virtual_placements.push(KittyVirtualPlacement {
+            image_id: pane_image_id,
+            placement_id,
+            placement_uid,
+            internal_id: internal,
+            dest_cells: (cols as u16, rows as u16),
+            z_index: command.z_index,
+        });
+        self.kitty_image_store
+            .borrow_mut()
+            .add_placement_ref(internal);
+        Ok(())
+    }
+    /// The pieces of virtual placements to draw for the placeholder runs found on the viewport
+    /// lines `lines` (viewport line index, runs on it).
+    pub fn placeholder_chunks(
+        &self,
+        lines: &[(usize, Vec<PlaceholderRun>)],
+        viewport_width_in_cells: usize,
+        viewport_x_offset: usize,
+        viewport_y_offset: usize,
+    ) -> Vec<KittyImageChunk> {
+        let Some(cell) = *self.character_cell_size.borrow() else {
+            return vec![];
+        };
+        let mut chunks = vec![];
+        for (line_index, runs) in lines {
+            for run in runs {
+                let Some(placement) = self
+                    .virtual_placements
+                    .iter()
+                    .find(|placement| {
+                        placement.image_id == run.image_id
+                            && placement.placement_id == run.placement_id
+                    })
+                    .or_else(|| {
+                        self.virtual_placements
+                            .iter()
+                            .find(|placement| placement.image_id == run.image_id)
+                    })
+                else {
+                    continue;
+                };
+                let (cols, rows) = (
+                    placement.dest_cells.0 as usize,
+                    placement.dest_cells.1 as usize,
+                );
+                let (image_row, image_column) = (run.image_row as usize, run.image_column as usize);
+                let length = run
+                    .length
+                    .min(cols.saturating_sub(image_column))
+                    .min(viewport_width_in_cells.saturating_sub(run.x));
+                if image_row >= rows || length == 0 {
+                    continue;
+                }
+                let Some(scaled_image) = self.virtual_variant(placement, cell, cols, rows) else {
+                    continue;
+                };
+                chunks.push(KittyImageChunk {
+                    cell_x: viewport_x_offset + run.x,
+                    cell_y: viewport_y_offset + line_index,
+                    internal_image_id: placement.internal_id,
+                    source_px_x: image_column * cell.width,
+                    source_px_y: image_row * cell.height,
+                    source_px_width: length * cell.width,
+                    source_px_height: cell.height,
+                    cell_offset_x: 0,
+                    cell_offset_y: 0,
+                    z_index: placement.z_index,
+                    scaled_image: Some(scaled_image),
+                    placement_uid: placement.placement_uid,
+                });
+            }
+        }
+        chunks
+    }
+    /// The image stretched over all the cells of the placement, made on first use at the current
+    /// cell size (a cell size change drops the old ones).
+    fn virtual_variant(
+        &self,
+        placement: &KittyVirtualPlacement,
+        cell: SizeInPixels,
+        cols: usize,
+        rows: usize,
+    ) -> Option<ScaledImageKey> {
+        let mut store = self.kitty_image_store.borrow_mut();
+        let (image_width, image_height) = {
+            let image = store.get(placement.internal_id)?;
+            (image.width as usize, image.height as usize)
+        };
+        let key = ScaledImageKey {
+            source: PixelRect {
+                x: 0,
+                y: 0,
+                width: image_width,
+                height: image_height,
+            },
+            size: (cols * cell.width, rows * cell.height),
+        };
+        if store.scaled_variant(placement.internal_id, key).is_none() {
+            let scaled = scale_rgba(
+                &store.get(placement.internal_id)?.rgba,
+                image_width,
+                image_height,
+                key.size.0,
+                key.size.1,
+            );
+            store.add_scaled_variant(placement.internal_id, key, scaled);
+        }
+        Some(key)
+    }
     pub fn delete(
         &mut self,
         command: &KittyCommand,
@@ -571,6 +770,31 @@ impl KittyGrid {
                 }
             }
             self.placements = kept;
+            let mut kept_virtual = Vec::with_capacity(self.virtual_placements.len());
+            for placement in self.virtual_placements.drain(..) {
+                let matches = match lower {
+                    'i' | 'n' => {
+                        placement.image_id == target_image_id.unwrap()
+                            && command
+                                .placement_id
+                                .map(|placement_id| placement.placement_id == placement_id)
+                                .unwrap_or(true)
+                    },
+                    'r' => {
+                        placement.image_id >= command.source_x
+                            && placement.image_id <= command.source_y
+                    },
+                    _ => false,
+                };
+                if !matches {
+                    kept_virtual.push(placement);
+                } else if uppercase {
+                    store.free(placement.internal_id);
+                } else {
+                    store.remove_placement_ref(placement.internal_id);
+                }
+            }
+            self.virtual_placements = kept_virtual;
         }
         if uppercase {
             match lower {
@@ -579,7 +803,11 @@ impl KittyGrid {
                     let no_surviving = !self
                         .placements
                         .iter()
-                        .any(|placement| placement.image_id == target);
+                        .any(|placement| placement.image_id == target)
+                        && !self
+                            .virtual_placements
+                            .iter()
+                            .any(|placement| placement.image_id == target);
                     if no_surviving {
                         if let Some(internal) = self.image_ids.get(&target).copied() {
                             self.kitty_image_store.borrow_mut().free(internal);
