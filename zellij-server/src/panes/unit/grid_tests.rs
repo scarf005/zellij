@@ -11074,6 +11074,28 @@ fn kitty_unicode_placeholder_cells_are_drawn_as_one_image_chunk_per_line() {
 }
 
 #[test]
+fn kitty_unicode_placeholder_keeps_the_image_aspect_ratio_and_centres_it_in_the_cells() {
+    // 10x10 image in 3x2 cells of 10x20 px: the 30x40 px area holds a 30x30 image
+    let (mut grid, kitty_image_store) = new_kitty_grid(20, 40);
+    let mut vte_parser = vte::Parser::new();
+    transmit_virtual_kitty_image(&mut grid, &mut vte_parser);
+    for byte in placeholder_line("0;0;1", 0, 3).as_bytes() {
+        vte_parser.advance(&mut grid, &[*byte]);
+    }
+    let (_, _, kitty_chunks) = grid.read_changes(0, 0);
+    let key = kitty_chunks[0].scaled_image.unwrap();
+    let store = kitty_image_store.borrow();
+    let scaled = store
+        .scaled_variant(kitty_chunks[0].internal_image_id, key)
+        .unwrap();
+    let alpha = |x: usize, y: usize| scaled[(y * 30 + x) * 4 + 3];
+    assert_eq!(
+        (alpha(15, 4), alpha(15, 5), alpha(15, 34), alpha(15, 35)),
+        (0, 255, 255, 0)
+    );
+}
+
+#[test]
 fn kitty_unicode_placeholder_cells_of_an_unknown_image_draw_nothing() {
     let (mut grid, _kitty_image_store) = new_kitty_grid(20, 40);
     let mut vte_parser = vte::Parser::new();

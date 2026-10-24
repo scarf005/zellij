@@ -609,13 +609,26 @@ impl KittyGrid {
             size: (cols * cell.width, rows * cell.height),
         };
         if store.scaled_variant(placement.internal_id, key).is_none() {
-            let scaled = scale_rgba(
+            let (area_width, area_height) = key.size;
+            let fit_width =
+                (image_width * area_height).min(area_width * image_height) / image_height.max(1);
+            let fit_width = fit_width.clamp(1, area_width);
+            let fit_height = (fit_width * image_height / image_width.max(1)).clamp(1, area_height);
+            let fitted = scale_rgba(
                 &store.get(placement.internal_id)?.rgba,
                 image_width,
                 image_height,
-                key.size.0,
-                key.size.1,
+                fit_width,
+                fit_height,
             );
+            let (offset_x, offset_y) =
+                ((area_width - fit_width) / 2, (area_height - fit_height) / 2);
+            let mut scaled = vec![0u8; area_width * area_height * 4];
+            for row in 0..fit_height {
+                let dst = ((offset_y + row) * area_width + offset_x) * 4;
+                let src = row * fit_width * 4;
+                scaled[dst..dst + fit_width * 4].copy_from_slice(&fitted[src..src + fit_width * 4]);
+            }
             store.add_scaled_variant(placement.internal_id, key, scaled);
         }
         Some(key)
