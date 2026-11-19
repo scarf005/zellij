@@ -1169,6 +1169,8 @@ pub struct TabInfo {
     pub other_focused_client_slots: ::prost::alloc::vec::Vec<u32>,
     #[prost(message, optional, tag="21")]
     pub attention: ::core::option::Option<TabAttention>,
+    #[prost(bool, tag="22")]
+    pub is_active_client: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

@@ -145,6 +145,7 @@ impl TestRunner {
                     client_info,
                     None,
                     None,
+                    None, // window_size
                     false,
                     start_detached_and_exit,
                     None,
@@ -479,6 +480,7 @@ fn spawn_focusing_client_thread(
                 client_info,
                 None,
                 pane_id_to_focus,
+                None, // window_size
                 false,
                 false,
                 None,
@@ -510,6 +512,7 @@ fn spawn_client_thread_with_reconnect(
                 client_info,
                 tab_position_to_focus,
                 pane_id_to_focus,
+                None, // window_size
                 is_a_reconnect,
                 start_detached_and_exit,
                 switch_context,

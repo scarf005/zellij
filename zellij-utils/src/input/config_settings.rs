@@ -144,6 +144,7 @@ fn option_values(options: &Options, values: &mut BTreeMap<SettingKey, Option<Str
         grapheme_clusters,
         mirror_resizes_source_pane,
         live_view_release_key,
+        window_size: _window_size_is_not_edited_here,
         web_server,
         web_sharing,
         stacked_resize,

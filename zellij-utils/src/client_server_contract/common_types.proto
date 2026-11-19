@@ -1340,6 +1340,7 @@ message Options {
   optional bool grapheme_clusters = 82;
   optional bool mirror_resizes_source_pane = 83;
   optional string live_view_release_key = 84;
+  optional string window_size = 85;
 }
 
 enum OnForceClose {

@@ -2272,6 +2272,8 @@ pub struct Options {
     pub mirror_resizes_source_pane: ::core::option::Option<bool>,
     #[prost(string, optional, tag="84")]
     pub live_view_release_key: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag="85")]
+    pub window_size: ::core::option::Option<::prost::alloc::string::String>,
 }
 /// Pane-targeting action messages
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -4268,6 +4270,8 @@ pub struct FirstClientConnectedMsg {
     pub cli_assets: ::core::option::Option<CliAssets>,
     #[prost(bool, tag="2")]
     pub is_web_client: bool,
+    #[prost(string, optional, tag="3")]
+    pub window_size: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4280,6 +4284,8 @@ pub struct AttachClientMsg {
     pub pane_to_focus: ::core::option::Option<PaneReference>,
     #[prost(bool, tag="4")]
     pub is_web_client: bool,
+    #[prost(string, optional, tag="5")]
+    pub window_size: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

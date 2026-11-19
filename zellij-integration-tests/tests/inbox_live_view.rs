@@ -262,8 +262,13 @@ fn alt_enter_types_into_the_pane_and_the_release_key_or_a_click_outside_ends_typ
     let (mut zellij, _) = main_session();
     let (other, terminal) = two_pane_item_session("type here", "Type?");
     let source_view = other.attach_client(TERMINAL_SIZE);
-    source_view.wait_until("the source view is up", |grid_snapshot| {
+    let grid_snapshot = source_view.wait_until("the source view is up", |grid_snapshot| {
         grid_snapshot.contains("type here")
+    });
+    // A view that only shows a pane that a client focuses does not resize it.
+    source_view.send_action(zellij_utils::input::actions::Action::FocusNextPane);
+    source_view.wait_until("the source view focuses the other pane", |next| {
+        next.cursor.is_some() && next.cursor != grid_snapshot.cursor
     });
     wait_for_count(&zellij, 1);
     open_inbox_on(&zellij, "Type?");
@@ -962,7 +967,7 @@ fn browsing_resizes_a_pane_once_it_settles_and_it_keeps_that_size_until_focused_
 }
 
 #[test]
-fn typing_into_a_shown_pane_in_its_own_session_gives_its_size_back_until_typing_through_the_view() {
+fn a_pane_a_client_focuses_takes_the_view_size_only_while_typing_through_the_view() {
     let (mut zellij, _) = main_session();
     let (session, terminal) = two_pane_item_session("typed in place", "Local?");
     let source_client = session.attach_client(TERMINAL_SIZE);
@@ -978,23 +983,18 @@ fn typing_into_a_shown_pane_in_its_own_session_gives_its_size_back_until_typing_
     wait_for_count(&zellij, 1);
     open_inbox_on(&zellij, "Local?");
     let view_size = shown_view_size(&zellij, &session, "typed in place");
-    terminal.wait_for_size("the shown pane is resized to the view", |cols, rows| {
+    // Wait past the 300 ms pin settle time of a shown view, so an old pin would have landed.
+    std::thread::sleep(Duration::from_millis(700));
+    assert_not_pinned_after_a_barrier(&source_client, &terminal, layout_size, "still focused");
+    start_typing(&zellij);
+    terminal.wait_for_size("typing through the view takes the size", |cols, rows| {
         (cols, rows) == view_size
     });
-    source_client.send_stdin(b"local");
-    terminal.wait_for_stdin("the local keys reached the pane", |stdin| {
-        stdin.ends_with(b"local")
-    });
+    press_release_key(&zellij);
     terminal.wait_for_size(
-        "typing in its own session gives the pane its size back",
+        "the release key gives the size back to the client that focuses the pane",
         |cols, rows| (cols, rows) == layout_size,
     );
-    start_typing(&zellij);
-    terminal.wait_for_size(
-        "typing through the view takes the size back",
-        |cols, rows| (cols, rows) == view_size,
-    );
-    press_release_key(&zellij);
     source_client.detach();
     zellij.quit();
 }

@@ -835,6 +835,7 @@ message TabInfo {
     bool is_flashing_bell = 19;
     repeated uint32 other_focused_client_slots = 20;
     TabAttention attention = 21;
+    bool is_active_client = 22;
 }
 
 message ModeUpdatePayload {

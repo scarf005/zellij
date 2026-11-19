@@ -341,21 +341,31 @@ fn is_frame(event: &MirrorTransportEvent) -> bool {
 struct WatchedSource {
     source: BackgroundTestSession,
     terminal: FakePtyHandle,
+    other_pane: FakePtyHandle,
     view: TestClient,
     layout_size: (u16, u16),
 }
 
+// The source view focuses the other pane: a view that only shows a pane that a client focuses
+// does not pin it.
 fn start_watched_source(extra_config: &str) -> WatchedSource {
     let (source, terminal) = start_source_with_config(extra_config);
+    let other_pane = source.expect_pty_spawn();
     terminal.output(b"$ watched source\r\n");
     let view = source.attach_client(TERMINAL_SIZE);
     view.wait_until("the source view shows the source", |grid_snapshot| {
         grid_snapshot.contains("watched source")
     });
     let layout_size = wait_for_the_layout_size(&terminal);
+    view.send_action(zellij_utils::input::actions::Action::FocusNextPane);
+    view.send_stdin(b"f");
+    other_pane.wait_for_stdin("the source view focuses the other pane", |stdin| {
+        stdin.ends_with(b"f")
+    });
     WatchedSource {
         source,
         terminal,
+        other_pane,
         view,
         layout_size,
     }
@@ -500,7 +510,10 @@ fn assert_keeps_the_size_after_a_barrier(watched: &WatchedSource, size: (u16, u1
     assert_eq!(watched.terminal.size(), Some(size));
 }
 
-fn give_the_size_back_by_typing_in_the_source(watched: &WatchedSource) {
+fn give_the_size_back_by_focusing_the_pane_in_the_source(watched: &WatchedSource) {
+    watched
+        .view
+        .send_action(zellij_utils::input::actions::Action::FocusNextPane);
     watched.view.send_stdin(b"k");
     watched
         .terminal
@@ -510,7 +523,7 @@ fn give_the_size_back_by_typing_in_the_source(watched: &WatchedSource) {
     wait_for_the_release(
         &watched.terminal,
         watched.layout_size,
-        "typing in the source session gives the pane its layout size back",
+        "focusing the pane in the source session gives it its layout size back",
     );
 }
 
@@ -836,7 +849,7 @@ fn switching_the_target_keeps_the_old_pane_at_its_size_until_it_is_used_in_its_s
                 && grid_snapshot.contains("released=Some(Cleared)")
         });
     assert_keeps_the_size_after_a_barrier(&pinned.watched, VIEW_SIZE, "after the switch");
-    give_the_size_back_by_typing_in_the_source(&pinned.watched);
+    give_the_size_back_by_focusing_the_pane_in_the_source(&pinned.watched);
     let mut viewer = pinned.viewer;
     viewer.zellij.quit();
 }
@@ -1115,7 +1128,7 @@ fn a_pin_that_is_not_renewed_expires_and_the_pane_keeps_its_size_until_used_in_i
         is_pin_state(event, false, None)
     });
     assert_keeps_the_size_after_a_barrier(&watched, as_pty_size(viewer_size), "after the lease");
-    give_the_size_back_by_typing_in_the_source(&watched);
+    give_the_size_back_by_focusing_the_pane_in_the_source(&watched);
 }
 
 #[test]
@@ -1363,29 +1376,10 @@ fn two_clients_have_their_own_live_views_and_captures() {
         "the first client stopped capturing",
         "released=Some(Plugin)",
     );
-    wait_for_the_pin_at(
-        &first_terminal,
-        VIEW_SIZE,
-        "a shown view holds its pin after capture ends",
-    );
-    send_to_the_fixture(
-        &viewer.zellij,
-        "live_view_clear",
-        &[("only_client", first_id)],
-    );
-    let cursor_before = source_view.snapshot().cursor;
-    source_view.send_action(zellij_utils::input::actions::Action::FocusNextPane);
-    source_view.wait_until("the focus moved to the other pane", |grid_snapshot| {
-        grid_snapshot.cursor.is_some() && grid_snapshot.cursor != cursor_before
-    });
-    source_view.send_action(zellij_utils::input::actions::Action::FocusNextPane);
-    source_view.wait_until("the focus moved back", |grid_snapshot| {
-        grid_snapshot.cursor == cursor_before
-    });
     wait_for_the_release(
         &first_terminal,
         first_layout_size,
-        "focusing the pane in its session gives its size back once nobody shows it",
+        "the source view focuses the pane and takes its size back when capture ends",
     );
     viewer.zellij.quit();
 }
@@ -1999,7 +1993,7 @@ fn a_live_view_that_may_not_resize_leaves_the_source_client_count_and_tab_size_a
 fn a_resizing_live_view_changes_only_the_program_size_and_leaves_the_source_client_count_and_tab_size_alone(
 ) {
     let watched = start_watched_source("");
-    let other_pane = watched.source.expect_pty_spawn();
+    let other_pane = &watched.other_pane;
     let other_size = other_pane.wait_for_size(
         "the other source pane has the size of the attached source view",
         |cols, rows| {

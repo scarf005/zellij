@@ -57,6 +57,7 @@ fn every_option_set() -> Options {
         grapheme_clusters: Some(false),
         mirror_resizes_source_pane: Some(false),
         live_view_release_key: Some("Ctrl Alt End".to_owned()),
+        window_size: None,
         web_server: Some(true),
         web_sharing: Some(WebSharing::Disabled),
         stacked_resize: Some(false),

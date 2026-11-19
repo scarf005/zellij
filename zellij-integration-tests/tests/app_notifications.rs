@@ -118,6 +118,7 @@ impl WindowClient {
             None,
             Some((pane_id, false)),
             None,
+            None,
         );
         sender
             .send_client_msg(handshake.message)
