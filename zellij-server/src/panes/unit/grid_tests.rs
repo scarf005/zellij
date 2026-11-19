@@ -11036,6 +11036,16 @@ fn kitty_unicode_placeholder_image_leaves_the_store_when_the_pane_closes() {
 }
 
 #[test]
+fn kitty_unicode_placeholder_image_stays_after_the_scrollback_is_erased() {
+    // `clear` sends ESC[3J; kitty keeps virtual placements, so the image stays in the store
+    let (mut grid, kitty_image_store) = new_kitty_grid(20, 40);
+    let mut vte_parser = vte::Parser::new();
+    transmit_virtual_kitty_image(&mut grid, &mut vte_parser);
+    vte_parser.advance(&mut grid, b"\x1b[3J");
+    assert_eq!(kitty_image_store.borrow().image_count(), 1);
+}
+
+#[test]
 fn kitty_unicode_placeholder_cells_are_drawn_as_one_image_chunk_per_line() {
     let (mut grid, _kitty_image_store) = new_kitty_grid(20, 40);
     let mut vte_parser = vte::Parser::new();

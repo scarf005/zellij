@@ -1152,6 +1152,15 @@ impl KittyGrid {
             store.free(placement.internal_id);
         }
     }
+    /// Free normal and virtual placements on pane close, RIS and alternate screen exit.
+    /// Keep virtual placements on erase display (ED): use clear_all_placements there.
+    pub fn release_all_placements(&mut self) {
+        self.clear_all_placements();
+        let mut store = self.kitty_image_store.borrow_mut();
+        for placement in self.virtual_placements.drain(..) {
+            store.free(placement.internal_id);
+        }
+    }
     pub fn clear_visible_placements(&mut self, scrollback_size_in_lines: usize) {
         let cell_size = { *self.character_cell_size.borrow() };
         let cell_height = match cell_size {

@@ -3212,7 +3212,7 @@ impl Grid {
     }
     pub fn reset_terminal_state(&mut self) {
         if let Some(alternate_screen_state) = self.alternate_screen_state.as_mut() {
-            alternate_screen_state.kitty_grid.clear_all_placements();
+            alternate_screen_state.kitty_grid.release_all_placements();
         }
         self.invalidate_scroll_offset();
         self.lines_above = VecDeque::new();
@@ -3247,7 +3247,7 @@ impl Grid {
         if let Some(images_to_reap) = self.sixel_grid.clear() {
             self.sixel_grid.reap_images(images_to_reap);
         }
-        self.kitty_grid.clear_all_placements();
+        self.kitty_grid.release_all_placements();
         let kitty_image_store = self.kitty_grid.kitty_image_store.clone();
         self.kitty_grid = KittyGrid::new(self.character_cell_size.clone(), kitty_image_store);
         self.kitty_parser.abort_pending();
@@ -5115,9 +5115,9 @@ impl Grid {
 
 impl Drop for Grid {
     fn drop(&mut self) {
-        self.kitty_grid.clear_all_placements();
+        self.kitty_grid.release_all_placements();
         if let Some(alt) = self.alternate_screen_state.as_mut() {
-            alt.kitty_grid.clear_all_placements();
+            alt.kitty_grid.release_all_placements();
         }
     }
 }
@@ -5780,7 +5780,7 @@ impl Perform for Grid {
                                     // outside of the alternate_screen_state struct
                                     self.sixel_grid.reap_images(image_ids_to_reap);
                                 }
-                                self.kitty_grid.clear_all_placements();
+                                self.kitty_grid.release_all_placements();
                                 alternate_screen_state.apply_contents_to(
                                     &mut self.lines_above,
                                     &mut self.viewport,
