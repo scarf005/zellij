@@ -11025,6 +11025,17 @@ fn kitty_unicode_placeholder_transmit_stores_the_image_without_a_placement_or_cu
 }
 
 #[test]
+fn kitty_unicode_placeholder_image_leaves_the_store_when_the_pane_closes() {
+    // a=T,U=1 holds the image by its virtual placement only; dropping the grid releases it
+    let (mut grid, kitty_image_store) = new_kitty_grid(20, 40);
+    let mut vte_parser = vte::Parser::new();
+    transmit_virtual_kitty_image(&mut grid, &mut vte_parser);
+    assert_eq!(kitty_image_store.borrow().image_count(), 1);
+    drop(grid);
+    assert_eq!(kitty_image_store.borrow().image_count(), 0);
+}
+
+#[test]
 fn kitty_unicode_placeholder_cells_are_drawn_as_one_image_chunk_per_line() {
     let (mut grid, _kitty_image_store) = new_kitty_grid(20, 40);
     let mut vte_parser = vte::Parser::new();
