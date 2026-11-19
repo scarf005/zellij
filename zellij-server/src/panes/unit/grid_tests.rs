@@ -11046,6 +11046,25 @@ fn kitty_unicode_placeholder_image_stays_after_the_scrollback_is_erased() {
 }
 
 #[test]
+fn kitty_unicode_placeholder_cells_without_a_virtual_placement_are_sent_as_blanks() {
+    // no a=T,U=1 before the cells: "ab" plus 3 placeholders reach the host as "ab   "
+    let (mut grid, _kitty_image_store) = new_kitty_grid(20, 40);
+    let mut vte_parser = vte::Parser::new();
+    for byte in format!("ab{}", placeholder_line("0;0;1", 0, 3)).as_bytes() {
+        vte_parser.advance(&mut grid, &[*byte]);
+    }
+    let (character_chunks, _, kitty_chunks) = grid.read_changes(0, 0);
+    assert!(kitty_chunks.is_empty());
+    let line: String = character_chunks[0]
+        .terminal_characters
+        .iter()
+        .take(5)
+        .map(|character| character.character)
+        .collect();
+    assert_eq!(line, "ab   ");
+}
+
+#[test]
 fn kitty_unicode_placeholder_cells_are_drawn_as_one_image_chunk_per_line() {
     let (mut grid, _kitty_image_store) = new_kitty_grid(20, 40);
     let mut vte_parser = vte::Parser::new();

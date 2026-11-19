@@ -2128,16 +2128,13 @@ impl Grid {
             x_offset,
             y_offset,
         );
-        if self.kitty_grid.has_virtual_placements() {
-            // the placeholder cells are shown as the image pieces drawn over them
-            for chunk in changed_character_chunks.iter_mut() {
-                for character in chunk.terminal_characters.iter_mut() {
-                    if character.character == PLACEHOLDER {
-                        *character = TerminalCharacter::new_singlewidth_styled(
-                            ' ',
-                            character.styles.clone(),
-                        );
-                    }
+        // show placeholder cells as blanks under their image pieces, and never send U+10EEEE to
+        // the host: a host kitty reads its colour as an image id of its own
+        for chunk in changed_character_chunks.iter_mut() {
+            for character in chunk.terminal_characters.iter_mut() {
+                if character.character == PLACEHOLDER {
+                    *character =
+                        TerminalCharacter::new_singlewidth_styled(' ', character.styles.clone());
                 }
             }
         }
