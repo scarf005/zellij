@@ -3116,7 +3116,17 @@ impl Screen {
         if self.window_size == WindowSize::Latest {
             if let Some(active) = self.last_interacting_client {
                 if self.active_tab_ids.get(&active) == Some(&tab_id) {
-                    if let Some(&new_size) = self.client_sizes.get(&active) {
+                    // a fit-disabled web client follows its reference client, as below
+                    let fit_disabled = self
+                        .mobile_web_prefs
+                        .get(&active)
+                        .is_some_and(|prefs| !prefs.fit);
+                    let new_size = if fit_disabled {
+                        self.reference_size_for_client(active)
+                    } else {
+                        self.client_sizes.get(&active).copied()
+                    };
+                    if let Some(new_size) = new_size {
                         if let Some(tab) = self.tabs.get_mut(&tab_id) {
                             if tab.size != new_size {
                                 tab.resize_whole_tab(new_size).with_context(err_context)?;
