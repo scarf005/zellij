@@ -580,3 +580,28 @@ fn a_pane_that_runs_the_viewing_session_or_one_it_is_nested_in_is_not_mirrored()
     assert!(!guest_is_a_viewer(None, &viewer));
     assert!(!guest_is_a_viewer(Some("inner".to_owned()), &[]));
 }
+
+#[test]
+fn a_shown_view_resizes_a_pane_a_client_focuses_only_while_typing_through_the_view() {
+    let (mut mirrors, _receivers) = mirrors_with(&[(1, 5, false)]);
+    let mut host = pinned_host();
+    let now = Instant::now();
+    mirrors.focused_panes.insert(PaneId::Terminal(5));
+    mirrors.update_wish(1, size(40, 10), false, true, now);
+    mirrors.settle_pins(&mut host, now);
+    assert_eq!(
+        host.program_size(PaneId::Terminal(5)),
+        Some(size(120, 40)),
+        "a view that only shows the pane resized it under the client that focuses it"
+    );
+    mirrors.update_wish(1, size(40, 10), true, true, now);
+    mirrors.settle_pins(&mut host, now);
+    assert_eq!(host.program_size(PaneId::Terminal(5)), Some(size(40, 10)));
+    mirrors.update_wish(1, size(40, 10), false, true, now);
+    mirrors.settle_pins(&mut host, now);
+    assert_eq!(
+        host.program_size(PaneId::Terminal(5)),
+        Some(size(120, 40)),
+        "the pane kept the view size after typing through the view ended"
+    );
+}
