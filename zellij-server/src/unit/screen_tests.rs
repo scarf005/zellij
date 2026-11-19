@@ -12230,6 +12230,30 @@ fn fit_disabled_excludes_web_client_from_min_size() {
 }
 
 #[test]
+fn fit_disabled_web_client_keeps_the_desktop_size_under_window_size_latest() {
+    // desktop 80x20, phone 40x10 with fit off: the phone types last, the tab stays 80x20
+    let initial_size = Size { cols: 80, rows: 20 };
+    let mut screen = create_new_screen(initial_size, true, true);
+    new_tab(&mut screen, 1, 0);
+    screen
+        .add_client(2, /* is_web_client */ true)
+        .expect("TEST");
+    screen.window_size = WindowSize::Latest;
+    screen.set_client_size(1, Size { cols: 80, rows: 20 });
+    screen.set_client_size(2, Size { cols: 40, rows: 10 });
+    screen
+        .set_mobile_render_preferences(2, /* single_pane */ false, /* fit */ false)
+        .expect("TEST");
+
+    screen.mark_client_active(2).expect("TEST");
+
+    assert_eq!(
+        screen.tabs.get(&0).unwrap().size,
+        Size { cols: 80, rows: 20 }
+    );
+}
+
+#[test]
 fn fit_disabled_ignores_client_on_another_tab() {
     let initial_size = Size {
         cols: 200,
