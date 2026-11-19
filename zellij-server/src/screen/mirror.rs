@@ -202,6 +202,9 @@ impl PaneMirrors {
             let Some(size) = subscriber.kept else {
                 continue;
             };
+            if self.focused_panes.contains(&subscriber.pane_id) {
+                continue;
+            }
             let candidate = (subscriber.pin_order, *subscriber_id, size);
             claims
                 .entry(subscriber.pane_id)
@@ -246,7 +249,12 @@ impl PaneMirrors {
     pub(crate) fn settle_pins(&mut self, host: &mut dyn PinHost, now: Instant) -> PinsSettled {
         let mut settled = PinsSettled::default();
         loop {
-            let winners = choose_pins(&self.subscribers, self.resizes_source_pane, now);
+            let winners = choose_pins(
+                &self.subscribers,
+                &self.focused_panes,
+                self.resizes_source_pane,
+                now,
+            );
             if !self.resizes_source_pane {
                 for subscriber in self.subscribers.values_mut() {
                     subscriber.kept = None;
@@ -345,6 +353,7 @@ impl PinHost for BTreeMap<usize, Tab> {
 
 pub(crate) fn choose_pins(
     subscribers: &HashMap<MirrorSubscriberId, MirrorSubscriber>,
+    focused_panes: &HashSet<PaneId>,
     source_allows_pins: bool,
     now: Instant,
 ) -> HashMap<PaneId, (MirrorSubscriberId, Size)> {
@@ -353,7 +362,10 @@ pub(crate) fn choose_pins(
         return HashMap::new();
     }
     for (subscriber_id, subscriber) in subscribers {
-        if subscriber.parked || !subscriber.holds_lease(now) {
+        if subscriber.parked
+            || !subscriber.holds_lease(now)
+            || (focused_panes.contains(&subscriber.pane_id) && !subscriber.focused)
+        {
             continue;
         }
         let candidate = (subscriber.pin_order, *subscriber_id, subscriber.viewer_size);

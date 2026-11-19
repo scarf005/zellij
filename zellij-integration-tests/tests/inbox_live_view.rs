@@ -262,8 +262,13 @@ fn alt_enter_types_into_the_pane_and_the_release_key_or_a_click_outside_ends_typ
     let (mut zellij, _) = main_session();
     let (other, terminal) = two_pane_item_session("type here", "Type?");
     let source_view = other.attach_client(TERMINAL_SIZE);
-    source_view.wait_until("the source view is up", |grid_snapshot| {
+    let grid_snapshot = source_view.wait_until("the source view is up", |grid_snapshot| {
         grid_snapshot.contains("type here")
+    });
+    // A view that only shows a pane that a client focuses does not resize it.
+    source_view.send_action(zellij_utils::input::actions::Action::FocusNextPane);
+    source_view.wait_until("the source view focuses the other pane", |next| {
+        next.cursor.is_some() && next.cursor != grid_snapshot.cursor
     });
     wait_for_count(&zellij, 1);
     open_inbox_on(&zellij, "Type?");

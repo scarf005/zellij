@@ -37,9 +37,14 @@ fn mirrors_with(
 }
 
 fn winner_of(mirrors: &PaneMirrors, terminal_id: u32, now: Instant) -> Option<(u64, Size)> {
-    choose_pins(&mirrors.subscribers, mirrors.resizes_source_pane, now)
-        .get(&PaneId::Terminal(terminal_id))
-        .copied()
+    choose_pins(
+        &mirrors.subscribers,
+        &mirrors.focused_panes,
+        mirrors.resizes_source_pane,
+        now,
+    )
+    .get(&PaneId::Terminal(terminal_id))
+    .copied()
 }
 
 #[test]
