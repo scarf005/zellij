@@ -709,3 +709,33 @@ fn fullscreen_removes_the_images_of_the_panes_it_hides() {
 
     zellij.quit();
 }
+
+#[test]
+fn unicode_placeholder_cells_reach_the_client_as_a_placement_of_their_pieces() {
+    let mut zellij = start_zellij();
+    let terminal = claim_first_terminal_and_wait_for_prompt(&zellij);
+    setup_kitty_host(&zellij, &terminal);
+
+    // what Claude Code sends: a virtual placement, then placeholder cells coloured with the image id
+    let mut output = format!(
+        "\x1b_Ga=T,U=1,q=2,f=24,s=2,v=2,i=7,c=2,r=1,m=0;{}\x1b\\",
+        base64_encode(&[0xffu8; 12])
+    )
+    .into_bytes();
+    output.extend_from_slice(
+        "\x1b[38;2;0;0;7m\u{10EEEE}\u{305}\u{305}\u{10EEEE}\u{305}\u{30D}\x1b[39m".as_bytes(),
+    );
+    terminal.output(&output);
+
+    let expected_source = format!("w={},h={}", 2 * CELL_WIDTH, CELL_HEIGHT);
+    let bytes = zellij
+        .wait_until_raw_output("the placeholder cells' image piece is placed", |bytes| {
+            contains_bytes(bytes, expected_source.as_bytes())
+        });
+    assert!(
+        !contains_bytes(&bytes, "\u{10EEEE}".as_bytes()),
+        "the placeholder characters must not be forwarded to the host"
+    );
+
+    zellij.quit();
+}

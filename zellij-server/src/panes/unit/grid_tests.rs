@@ -10985,3 +10985,206 @@ fn stored_scrollback_blanks_rewrap_like_cells_on_resize() {
     let texts: Vec<usize> = grid.viewport.iter().map(|row| row.width()).collect();
     assert_eq!(texts, vec![30, 30, 20, 30, 30]);
 }
+
+// Unicode placeholders: row/column 0, 1, 2 are the marks U+0305, U+030D, U+030E.
+const PLACEHOLDER_MARKS: [char; 3] = ['\u{305}', '\u{30D}', '\u{30E}'];
+
+fn placeholder_line(image_id_color: &str, row: usize, columns: usize) -> String {
+    let mut line = format!("\x1b[38;2;{}m", image_id_color);
+    for column in 0..columns {
+        line.push('\u{10EEEE}');
+        line.push(PLACEHOLDER_MARKS[row]);
+        line.push(PLACEHOLDER_MARKS[column]);
+    }
+    line.push_str("\x1b[39m");
+    line
+}
+
+fn transmit_virtual_kitty_image(grid: &mut Grid, vte_parser: &mut vte::Parser) {
+    let mut interceptor = KittyApcInterceptor::new();
+    feed_kitty_bytes(
+        grid,
+        vte_parser,
+        &mut interceptor,
+        &kitty_apc(
+            "a=T,U=1,f=24,s=10,v=10,c=3,r=2,i=1,q=2",
+            &rgb_raster(10, 10),
+        ),
+    );
+}
+
+#[test]
+fn kitty_unicode_placeholder_transmit_stores_the_image_without_a_placement_or_cursor_move() {
+    let (mut grid, kitty_image_store) = new_kitty_grid(20, 40);
+    let mut vte_parser = vte::Parser::new();
+    transmit_virtual_kitty_image(&mut grid, &mut vte_parser);
+    assert_eq!(grid.kitty_placement_count(), 0);
+    assert_eq!(kitty_image_store.borrow().image_count(), 1);
+    let (cursor_x, cursor_y, _) = grid.cursor_coordinates().unwrap();
+    assert_eq!((cursor_x, cursor_y), (0, 0));
+}
+
+#[test]
+fn kitty_unicode_placeholder_image_leaves_the_store_when_the_pane_closes() {
+    // a=T,U=1 holds the image by its virtual placement only; dropping the grid releases it
+    let (mut grid, kitty_image_store) = new_kitty_grid(20, 40);
+    let mut vte_parser = vte::Parser::new();
+    transmit_virtual_kitty_image(&mut grid, &mut vte_parser);
+    assert_eq!(kitty_image_store.borrow().image_count(), 1);
+    drop(grid);
+    assert_eq!(kitty_image_store.borrow().image_count(), 0);
+}
+
+#[test]
+fn kitty_unicode_placeholder_image_stays_after_the_scrollback_is_erased() {
+    // `clear` sends ESC[3J; kitty keeps virtual placements, so the image stays in the store
+    let (mut grid, kitty_image_store) = new_kitty_grid(20, 40);
+    let mut vte_parser = vte::Parser::new();
+    transmit_virtual_kitty_image(&mut grid, &mut vte_parser);
+    vte_parser.advance(&mut grid, b"\x1b[3J");
+    assert_eq!(kitty_image_store.borrow().image_count(), 1);
+}
+
+#[test]
+fn kitty_unicode_placeholder_cells_without_a_virtual_placement_are_sent_as_blanks() {
+    // no a=T,U=1 before the cells: "ab" plus 3 placeholders reach the host as "ab   "
+    let (mut grid, _kitty_image_store) = new_kitty_grid(20, 40);
+    let mut vte_parser = vte::Parser::new();
+    for byte in format!("ab{}", placeholder_line("0;0;1", 0, 3)).as_bytes() {
+        vte_parser.advance(&mut grid, &[*byte]);
+    }
+    let (character_chunks, _, kitty_chunks) = grid.read_changes(0, 0);
+    assert!(kitty_chunks.is_empty());
+    let line: String = character_chunks[0]
+        .terminal_characters
+        .iter()
+        .take(5)
+        .map(|character| character.character)
+        .collect();
+    assert_eq!(line, "ab   ");
+}
+
+#[test]
+fn kitty_unicode_placeholder_cells_are_drawn_as_one_image_chunk_per_line() {
+    let (mut grid, _kitty_image_store) = new_kitty_grid(20, 40);
+    let mut vte_parser = vte::Parser::new();
+    transmit_virtual_kitty_image(&mut grid, &mut vte_parser);
+    // the image id 1 is the foreground colour 0;0;1
+    let text = format!(
+        "ab{}\r\n{}",
+        placeholder_line("0;0;1", 0, 3),
+        placeholder_line("0;0;1", 1, 3)
+    );
+    for byte in text.as_bytes() {
+        vte_parser.advance(&mut grid, &[*byte]);
+    }
+    let (character_chunks, _, kitty_chunks) = grid.read_changes(0, 0);
+    assert_eq!(kitty_chunks.len(), 2);
+    let (first, second) = (&kitty_chunks[0], &kitty_chunks[1]);
+    assert_eq!((first.cell_x, first.cell_y), (2, 0));
+    assert_eq!((second.cell_x, second.cell_y), (0, 1));
+    assert_eq!(
+        (
+            first.source_px_x,
+            first.source_px_y,
+            first.source_px_width,
+            first.source_px_height
+        ),
+        (0, 0, 30, 20)
+    );
+    assert_eq!(
+        (
+            second.source_px_x,
+            second.source_px_y,
+            second.source_px_width,
+            second.source_px_height
+        ),
+        (0, 20, 30, 20)
+    );
+    assert_eq!(first.placement_uid, second.placement_uid);
+    assert_eq!(first.scaled_image.unwrap().size, (30, 40));
+    assert_eq!(first.scaled_image, second.scaled_image);
+    let line: String = character_chunks[0]
+        .terminal_characters
+        .iter()
+        .take(6)
+        .map(|character| character.character)
+        .collect();
+    assert_eq!(line, "ab    ");
+}
+
+#[test]
+fn kitty_unicode_placeholder_keeps_the_image_aspect_ratio_and_centres_it_in_the_cells() {
+    // 10x10 image in 3x2 cells of 10x20 px: the 30x40 px area holds a 30x30 image
+    let (mut grid, kitty_image_store) = new_kitty_grid(20, 40);
+    let mut vte_parser = vte::Parser::new();
+    transmit_virtual_kitty_image(&mut grid, &mut vte_parser);
+    for byte in placeholder_line("0;0;1", 0, 3).as_bytes() {
+        vte_parser.advance(&mut grid, &[*byte]);
+    }
+    let (_, _, kitty_chunks) = grid.read_changes(0, 0);
+    let key = kitty_chunks[0].scaled_image.unwrap();
+    let store = kitty_image_store.borrow();
+    let scaled = store
+        .scaled_variant(kitty_chunks[0].internal_image_id, key)
+        .unwrap();
+    let alpha = |x: usize, y: usize| scaled[(y * 30 + x) * 4 + 3];
+    assert_eq!(
+        (alpha(15, 4), alpha(15, 5), alpha(15, 34), alpha(15, 35)),
+        (0, 255, 255, 0)
+    );
+}
+
+#[test]
+fn kitty_unicode_placeholder_cells_of_an_unknown_image_draw_nothing() {
+    let (mut grid, _kitty_image_store) = new_kitty_grid(20, 40);
+    let mut vte_parser = vte::Parser::new();
+    transmit_virtual_kitty_image(&mut grid, &mut vte_parser);
+    for byte in placeholder_line("0;0;9", 0, 3).as_bytes() {
+        vte_parser.advance(&mut grid, &[*byte]);
+    }
+    let (_, _, kitty_chunks) = grid.read_changes(0, 0);
+    assert!(kitty_chunks.is_empty());
+}
+
+#[test]
+fn kitty_unicode_placeholder_cells_past_the_placement_size_are_cut() {
+    let (mut grid, _kitty_image_store) = new_kitty_grid(20, 40);
+    let mut vte_parser = vte::Parser::new();
+    transmit_virtual_kitty_image(&mut grid, &mut vte_parser);
+    // the placement is 3 columns by 2 rows: the first cell names row 2, which is outside it
+    let line = format!(
+        "\x1b[38;2;0;0;1m\u{10EEEE}{}{}\u{10EEEE}{}{}\u{10EEEE}{}{}\x1b[39m",
+        '\u{30E}', '\u{30D}', '\u{305}', '\u{30E}', '\u{305}', '\u{305}'
+    );
+    for byte in line.as_bytes() {
+        vte_parser.advance(&mut grid, &[*byte]);
+    }
+    let (_, _, kitty_chunks) = grid.read_changes(0, 0);
+    // the second cell is row 0 column 2 and the third one row 0 column 0
+    assert_eq!(kitty_chunks.len(), 2);
+    assert_eq!(kitty_chunks[0].cell_x, 1);
+    assert_eq!(kitty_chunks[0].source_px_x, 20);
+    assert_eq!(kitty_chunks[1].cell_x, 2);
+    assert_eq!(kitty_chunks[1].source_px_x, 0);
+}
+
+#[test]
+fn kitty_delete_image_frees_its_unicode_placeholder_placement() {
+    let (mut grid, kitty_image_store) = new_kitty_grid(20, 40);
+    let mut vte_parser = vte::Parser::new();
+    let mut interceptor = KittyApcInterceptor::new();
+    transmit_virtual_kitty_image(&mut grid, &mut vte_parser);
+    feed_kitty_bytes(
+        &mut grid,
+        &mut vte_parser,
+        &mut interceptor,
+        &kitty_apc("a=d,d=I,i=1,q=2", b""),
+    );
+    assert_eq!(kitty_image_store.borrow().image_count(), 0);
+    for byte in placeholder_line("0;0;1", 0, 3).as_bytes() {
+        vte_parser.advance(&mut grid, &[*byte]);
+    }
+    let (_, _, kitty_chunks) = grid.read_changes(0, 0);
+    assert!(kitty_chunks.is_empty());
+}
